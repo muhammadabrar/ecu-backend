@@ -4,8 +4,11 @@ const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser')
 const bcrypt = require('bcryptjs');
 var multer = require('multer')
-var zip = require('express-zip');
+// var zip = require('express-zip');
 const fs = require("fs")
+const AdmZip = require('adm-zip');
+var uploadDir = fs.readdirSync("./public/files"); 
+const zip = new AdmZip();
 //email config
 var nodemailer = require('nodemailer');
 
@@ -58,6 +61,8 @@ hours = (hours % 12) || 12;
 var min = today.getMinutes();
 min = min<=9 ? '0'+min: min
 var time = hours+' : '+min+ " " + AmOrPm; 
+
+
 //middelware for auth
 const auth = async (req, res, next) => {
   const token = req.cookies.jwt;
@@ -176,9 +181,10 @@ app.get('/logout', async (req, res) => {
 
 //upload ecu files
 app.post('/upload_ecufile',function(req, res) {
+  // console.log(file)
   var storage = multer.diskStorage({
     destination: function (req, file, cb) {
-    cb(null, 'public')
+    cb(null, 'public/files')
   },
   filename: function (req, file, cb) {
     cb(null, file.originalname )
@@ -1210,75 +1216,89 @@ app.get('/earning/:time',  async (req, res) => {
   res.json({data: orders})
    })
 
-
-app.post('/pay', (req, res) => {
-  const create_payment_json = {
-    "intent": "sale",
-    "payer": {
-        "payment_method": "paypal"
+ //get file pay and download
+ app.get('/download/:id',  async (req, res) => {
+  const {id} = req.params
+  const file = await prisma.post.findFirst({
+    where: {
+      id : Number(id),
     },
-    "redirect_urls": {
-        "return_url": "http://localhost:3000/success",
-        "cancel_url": "http://localhost:3000/cancel"
-    },
-    "transactions": [{
-        "item_list": {
-            "items": [{
-                "name": "Red Sox Hat",
-                "sku": "001",
-                "price": "25.00",
-                "currency": "USD",
-                "quantity": 1
-            }]
-        },
-        "amount": {
-            "currency": "USD",
-            "total": "25.00"
-        },
-        "description": "Hat for the best team ever"
-    }]
-};
+  })
+  
+    
+    if(file){
+     const soldfile = await prisma.soldfile.create({
+      data: {
+        file_id : Number(id),
+        buyer: 'buyer',
+        amount: Number(file.price),
+        month : month,
+        day : day,
+        date : date,
+        year : year,
+      },
+    })
+    console.log('soldfile')
+    console.log(soldfile) 
+    res.redirect(`zipfiles/${file.file}/${soldfile.id}`)
 
-paypal.payment.create(create_payment_json, function (error, payment) {
-  if (error) {
-      throw error;
-  } else {
-      for(let i = 0;i < payment.links.length;i++){
-        if(payment.links[i].rel === 'approval_url'){
-          res.redirect(payment.links[i].href);
-        }
-      }
-  }
-});
-
-});
-
-app.get('/success', (req, res) => {
-  const payerId = req.query.PayerID;
-  const paymentId = req.query.paymentId;
-
-  const execute_payment_json = {
-    "payer_id": payerId,
-    "transactions": [{
-        "amount": {
-            "currency": "USD",
-            "total": "25.00"
-        }
-    }]
-  };
-
-  paypal.payment.execute(paymentId, execute_payment_json, function (error, payment) {
-    if (error) {
-        console.log(error.response);
-        throw error;
-    } else {
-        console.log(JSON.stringify(payment));
-        res.send('Success');
+      
+    }else{
+      res.json('there are no such file')
     }
-});
-});
+    
+   })
+
+   app.get('/download/zipfiles/:file/:id',  async (req, res) => {
+    const {file} = req.params
+    const {id} = req.params
+    const soldfile = await prisma.soldfile.findFirst({
+      where: {
+        id : Number(id),
+      },
+    })
+    if(!soldfile.download){
+      const update = await prisma.soldfile.update({
+        where: {
+          id : Number(id),
+        },
+        data: {
+          download: true,
+        },
+      })
+      res.zip([
+        { path: `./public/files/${file}`, name: `ecu-file/${file}` }
+      ]);
+    }else{
+      res.json('sorry yo already downloaded this file')
+    }
+    
+   })
 
 
+   app.get('/testzip/:name', (req, res) => {
+    const {name} = req.params
+ 
+    const zip = new AdmZip();
+    zip.addLocalFile(__dirname+"/public/files/SMS.pdf");
+
+ 
+    // Define zip file name
+    const downloadName = `${name}.zip`;
+ 
+    const data = zip.toBuffer();
+ 
+    // save file zip in root directory
+    zip.writeZip(__dirname+"/"+downloadName);
+    
+    // code to download zip file
+ console.log('runedee')
+    res.set('Content-Type','application/octet-stream');
+    res.set('Content-Disposition',`attachment; filename=${downloadName}`);
+    res.set('Content-Length',data.length);
+    res.send('dsadsad');
+ 
+})
 // set port, listen for requests
 app.listen(PORT, () => {
   console.log(`Server is running on port http://localhost:${PORT}/`);

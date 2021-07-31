@@ -132,6 +132,8 @@ model soldfile {
   file    Post    @relation(fields: [file_id], references: [id])
   file_id Int
   buyer   String? @db.VarChar(500)
+  download Boolean @default(false)
+
   amount  Int?
   month   Int?
   day     Int?
