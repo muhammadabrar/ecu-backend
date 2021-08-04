@@ -8,24 +8,16 @@ var multer = require('multer')
 const fs = require("fs")
 const AdmZip = require('adm-zip');
 var uploadDir = fs.readdirSync("./public/files"); 
-const zip = new AdmZip();
+// const zip = new AdmZip();
 //email config
 var nodemailer = require('nodemailer');
 
-var transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'abrarmuhammad100@gmail.com',
-    pass: 'uarwaiscjagtawxv'
-  }
-});
+
+
+
 const paypal = require('paypal-rest-sdk');
 
-paypal.configure({
-  'mode': 'sandbox', //sandbox or live
-  'client_id': 'AaU8tQfmz1_MFDTKuf84yYERXvdDt2ZFJVrxhNW_49DazF4A_F0VBuKyV5_nntyEdZqUa5Oq9ZBj65GV',
-  'client_secret': 'EAZ8aFDU4lHHLy1bQqULYWqznf3dBknXZW3AH__zFC0bUs8AGUyR6RNbm-jHvqtikX7PsSqMO5vxuvKm'
-});
+
 
 //prisma clients
 const { PrismaClient } = require('@prisma/client')
@@ -72,34 +64,40 @@ const auth = async (req, res, next) => {
     res.status(404).send("please login");
     
 } else{
-  jwt.verify(token, '3e3jh3jhjkdhsjdh234rhrh34rhe45h234jhewhrj4h32ehrh', (err, decodedToken) => {
-    if (err) {
-      console.log("error on middle");
-      console.log(err.message);
-      res.status(401).send("please login");
-      
-    } else {
-      req.user = decodedToken._id
-
+ console.log("auth run your are in")
       next();
-    }
-  });
+    
 }
 };
 
 //auth checking api
 app.get('/verifyAuth', async (req, res) => {
-  const token = req.cookies.jwt;
+  const token = await req.cookies.jwt;
+  console.log("token: "+token)
+
   if (token) {
-    res.json({login : true})
+    const decodedToken = jwt.verify(token, '3e3jh3jhjkdhsjdh234rhrh34rhe45h234jhewhrj4h32ehrh')
+    console.log("decodedToken: "+decodedToken)
+    const user_id = decodedToken._id
+    const user = await prisma.user.findFirst({
+      where: {
+        id : user_id
+      },
+      select:{
+        id: true,
+        name: true,
+      }
+    })
+
+    res.json({user: user})
   } else {
-    res.json({login : false})
+    res.json({user : false})
 
   }
 })
 
 //create user
-app.post('/user', async (req, res) => {
+app.post('/user', auth, async (req, res) => {
   console.log(req.body)
   const data = req.body.data
   const name = data.name
@@ -121,6 +119,36 @@ app.post('/user', async (req, res) => {
   res.json(user)
 })
 
+app.get('/users', auth, async (req, res) => {
+
+  const user = await prisma.user.findMany()
+  res.json({user: user})
+})
+app.delete('/user', auth, async (req, res) => {
+
+  const user = await prisma.user.delete()
+  res.json(user)
+})
+app.put('/user', auth, async (req, res) => {
+const data = req.body.data
+  const name = data.name
+  const email = data.email
+  const pass = data.pass
+
+  const passhash = await bcrypt.hash(pass, 10);
+
+  console.log(passhash)
+  const user = await prisma.user.update({
+
+    data: {
+      email: email,
+      name: name,
+      pass: passhash,
+      status: true,
+    },
+  })
+  res.json(user)
+})
 
 //login api
 app.post('/login', async (req, res) => {
@@ -142,28 +170,26 @@ app.post('/login', async (req, res) => {
     } else {
       const token = jwt.sign({ _id: getuser.id }, "3e3jh3jhjkdhsjdh234rhrh34rhe45h234jhewhrj4h32ehrh");
 
+        var mailOptions = {
+          from: 'abrarmuhammad100@gmail.com',
+          to: email,
+          subject: 'Your Are Login TO Tested-ECU Solutions',
+          text: 'Your Are Login TO Tested-ECU Solutions'
+        };
 
-
-var mailOptions = {
-  from: 'abrarmuhammad100@gmail.com',
-  to: email,
-  subject: 'Your Are Login TO Tested-ECU Solutions',
-  text: 'Your Are Login TO Tested-ECU Solutions'
-};
-
-transporter.sendMail(mailOptions, function(error, info){
-  if (error) {
-    console.log(error);
-  } else {
-    console.log('Email sent: ' + info.response);
-  }
-});
+        transporter.sendMail(mailOptions, function(error, info){
+          if (error) {
+            console.log(error);
+          } else {
+            console.log('Email sent: ' + info.response);
+          }
+        });
       res.cookie("jwt", token, {
         httpOnly: true
       });
       res.cookie('cookieName', true);
 
-      res.json({ msg: "login" })
+      res.json({ msg: "login", user:  getuser.id})
     }
   } else {
     res.status(500)
@@ -180,7 +206,7 @@ app.get('/logout', async (req, res) => {
 })
 
 //upload ecu files
-app.post('/upload_ecufile',function(req, res) {
+app.post('/upload_ecufile', auth, function(req, res) {
   // console.log(file)
   var storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -203,7 +229,7 @@ var upload = multer({ storage: storage }).single('file')
 
 });
 // add file api
-app.post('/savefile',  async (req, res) => {
+app.post('/savefile', auth, async (req, res) => {
   console.log('runing  /savefile')
   
   //get req
@@ -283,8 +309,35 @@ app.post('/savefile',  async (req, res) => {
 
 })
 
+app.get('/downloadfile/:name', async(req, res) => {
+    const {name} = req.params
+ const createfile = await prisma.post.findFirst({
+   where:{
+     id : name
+   }
+ })
+    const zip = new AdmZip();
+
+    zip.addLocalFile(`./public/files/${createfile.file}`);
+ 
+    // Define zip file name
+    const downloadName = `${name}.zip`;
+ 
+    const data = zip.toBuffer();
+ 
+    // save file zip in root directory
+    // zip.writeZip(__dirname+"/"+downloadName);
+    
+    // code to download zip file
+    console.log('runedee')
+    res.set('Content-Type','application/octet-stream');
+    res.set('Content-Disposition',`attachment; filename=${downloadName}`);
+    res.set('Content-Length',data.length);
+    res.send(data);
+ 
+})
 // add Editfile api
-app.put('/updatefile/:id',  async (req, res) => {
+app.put('/updatefile/:id', auth, async (req, res) => {
   
   
   //get req
@@ -298,7 +351,6 @@ app.put('/updatefile/:id',  async (req, res) => {
   const ecu = data.ecu
   const price = data.price
   const size = data.size
-  const fileName = data.fileName
   const Tool_read = data.Tool_read
   const old_file = data.old_file
   const {id }= req.params
@@ -310,7 +362,7 @@ app.put('/updatefile/:id',  async (req, res) => {
   //updatefile
   const updatefile = await prisma.post.update({
     where:{
-      id: Number(id)
+      id: id
     },
     data: {
       make : make,
@@ -322,7 +374,6 @@ app.put('/updatefile/:id',  async (req, res) => {
       ecu : ecu,
       price : Number(price),
       size : size,
-      file : fileName,
       Tool_read: Tool_read,
     },
   })
@@ -331,14 +382,7 @@ app.put('/updatefile/:id',  async (req, res) => {
     res.json(success)
   }else{
     console.log("record edited")
-    const pathToFile = "public/"+old_file
-    fs.unlink(pathToFile, function(err) {
-      if (err) {
-        throw err
-      } else {
-        console.log("Successfully deleted the file.")
-      }
-    })
+    
     const success = true
     res.json(success)
   }
@@ -346,14 +390,14 @@ app.put('/updatefile/:id',  async (req, res) => {
 
 })
 //file delete api
-app.delete('/deletefile/:id', async (req, res) => {
+app.delete('/deletefile/:id', auth, async (req, res) => {
   const { id } = req.params
   const post = await prisma.post.delete({
     where: {
-      id: Number(id)
+      id: id
     },
   })
-  const pathToFile = "public/"+post.file
+  const pathToFile = "public/files/"+post.file
   fs.unlink(pathToFile, function(err) {
     if (err) {
       throw err
@@ -365,7 +409,7 @@ app.delete('/deletefile/:id', async (req, res) => {
 })
 
 // getfilesinputoptions api
-app.get('/filedatalist', async (req, res) => {
+app.get('/filedatalist',  async (req, res) => {
 
   const model = await prisma.model.findMany()
   const make = await prisma.make.findMany()
@@ -439,7 +483,7 @@ app.get('/file/:id',  async (req, res) => {
   const {id} = req.params
   const data = await prisma.post.findFirst({
     where:{
-      id: Number(id)
+      id: id
     }
   })
   res.json({data: data})
@@ -584,7 +628,7 @@ app.get('/msg/:id',  async (req, res) => {
    //createfile
    const msg = await prisma.msgs.findFirst({
      where:{
-       id: Number(id)
+       id: id
      }
    })
    if(msg){
@@ -595,7 +639,7 @@ app.get('/msg/:id',  async (req, res) => {
    }
  })
 // add Tuningfile api
-app.post('/savetuningfile',  async (req, res) => {
+app.post('/savetuningfile', auth, async (req, res) => {
   console.log('runing  /savefile')
   
   //get req
@@ -649,7 +693,7 @@ app.get('/gettuningfile/:id',  async (req, res) => {
   const {id} = req.params
   const tuningfile = await prisma.tuningfiles.findFirst({
     where:{
-      id : Number(id)
+      id : id
     },
     select:{
       cat:{
@@ -690,7 +734,7 @@ app.put('/edittuningfile/:id',  async (req, res) => {
   //createfile
   const updatefile = await prisma.tuningfiles.update({
     where:{
-      id: Number(id)
+      id: id
     },
     data: {
       cat_id : upsertcat.id,
@@ -718,10 +762,10 @@ app.get('/about/',  async (req, res) => {
   }
 })
 //upload about image
-app.post('/upload_aboutimage',function(req, res) {
+app.post('/upload_aboutimage', auth, function(req, res) {
   var storage = multer.diskStorage({
     destination: function (req, file, cb) {
-    cb(null, 'images/about')
+    cb(null, 'images')
   },
   filename: function (req, file, cb) {
     cb(null, file.originalname )
@@ -755,7 +799,7 @@ app.put('/about/:id',  async (req, res) => {
   //createfile
   const updatefile = await prisma.about.update({
     where:{
-      id: Number(id)
+      id: id
     },
     data: {
       p : p,
@@ -801,7 +845,7 @@ app.put('/contact/:id',  async (req, res) => {
   //createfile
   const updatefile = await prisma.contact.update({
     where:{
-      id: Number(id)
+      id: id
     },
     data: {
       email: e,
@@ -820,11 +864,11 @@ app.put('/contact/:id',  async (req, res) => {
   }
 })
 //delete tuning file
-app.delete('/edittuningfile/:id', async (req, res) => {
+app.delete('/edittuningfile/:id', auth, async (req, res) => {
   const { id } = req.params
   const file = await prisma.tuningfiles.delete({
     where: {
-      id: Number(id)
+      id: id
     },
     
   })
@@ -843,7 +887,7 @@ app.get('/faq/',  async (req, res) => {
 })
 
 // post faq api
-app.post('/faq/',  async (req, res) => {
+app.post('/faq/', auth,  async (req, res) => {
   //get req
   const data = req.body.data
   const Q = data.Q
@@ -871,7 +915,7 @@ app.delete('/faq/:id', async (req, res) => {
   const { id } = req.params
   const faq = await prisma.faq.delete({
     where: {
-      id: Number(id)
+      id: id
     },
     
   })
@@ -907,7 +951,7 @@ app.post('/feedback/',  async (req, res) => {
   }
 })
 
-// post feedback api
+// get all feedback api
 app.get('/feedback/',  async (req, res) => {
   
   //createfile
@@ -915,6 +959,25 @@ app.get('/feedback/',  async (req, res) => {
     orderBy: {
       id: "desc"
     }
+  })
+  if(data){
+    res.json({data: data})
+
+  }else{
+    res.json("there are no data")
+  }
+})
+// get 2 feedback api
+app.get('/feedback/:limit',  async (req, res) => {
+  const {limit} = req.params
+  //createfile
+  const data = await prisma.feedback.findMany({
+    orderBy: {
+      id: "desc"
+    },
+    take: Number(limit)
+    
+    
   })
   if(data){
     res.json({data: data})
@@ -1055,7 +1118,7 @@ app.get('/visiterState/:time',  async (req, res) => {
  })
 
  //get visiter state
-app.get('/earnState/:time',  async (req, res) => {
+app.get('/earnState/:time', auth, async (req, res) => {
   const {time} = req.params
    //createfile
    switch (time){
@@ -1097,7 +1160,7 @@ app.get('/earnState/:time',  async (req, res) => {
  })
 
  //get file state
- app.get('/fileState/:time',  async (req, res) => {
+ app.get('/fileState/:time', auth, async (req, res) => {
   const {time} = req.params
    //createfile
    switch (time){
@@ -1128,7 +1191,7 @@ app.get('/earnState/:time',  async (req, res) => {
  })
 
  //get file pending ordersstates
- app.get('/orderState',  async (req, res) => {
+ app.get('/orderState', auth,  async (req, res) => {
   const data = await prisma.orders.count({
   where: {
     status: false
@@ -1138,7 +1201,7 @@ res.json({data: data})
  })
 
  //get earning graph
-app.get('/earning/:time',  async (req, res) => {
+app.get('/earning/:time', auth, async (req, res) => {
   const {time} = req.params
 
   //createfile
@@ -1195,23 +1258,67 @@ app.get('/earning/:time',  async (req, res) => {
  })
 
  //get orders
- app.get('/orders/:status',  async (req, res) => {
+ app.get('/orders/:status', auth,  async (req, res) => {
   const {status} = req.params
+  console.log(status)
+  if(status == 'Done'){
     const orders = await prisma.orders.findMany({
       where: {
-        status : Boolean(status)
+        status : true
       },
     })
   res.json({data: orders})
+  }else{
+     const orders = await prisma.orders.findMany({
+      where: {
+        status : false
+      },
+      orderBy:{
+        id : 'desc'
+      }
+    })
+  res.json({data: orders})
+  }
    })
 
  //get OrderDetail
- app.get('/OrderDetail/:id',  async (req, res) => {
+ app.get('/OrderDetail/:id', auth,  async (req, res) => {
   const {id} = req.params
     const orders = await prisma.orders.findMany({
       where: {
-        id : Number(id)
+        id : id
       },
+      select:{
+        name: true,
+        id: true,
+        des : true,
+        email : true,
+        file1 : true,
+        file2 : true,
+        price : true,
+        status : true,
+        paid : true,
+        month : true,
+        day : true,
+        date : true,
+        year : true,
+        time : true,
+        ordersID:{
+          select:{
+            tuningfile:{
+              select:{
+                title : true,
+                price : true,
+                cat:{
+                  select:{
+                    cat: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     })
   res.json({data: orders})
    })
@@ -1221,7 +1328,7 @@ app.get('/earning/:time',  async (req, res) => {
   const {id} = req.params
   const file = await prisma.post.findFirst({
     where: {
-      id : Number(id),
+      id : id,
     },
   })
   
@@ -1229,7 +1336,7 @@ app.get('/earning/:time',  async (req, res) => {
     if(file){
      const soldfile = await prisma.soldfile.create({
       data: {
-        file_id : Number(id),
+        file_id : id,
         buyer: 'buyer',
         amount: Number(file.price),
         month : month,
@@ -1238,6 +1345,10 @@ app.get('/earning/:time',  async (req, res) => {
         year : year,
       },
     })
+    res.cookie("download", soldfile.id, {
+      expires: new Date(Date.now() + 60*60*1000),
+      httpOnly: true
+    });
     console.log('soldfile')
     console.log(soldfile) 
     res.redirect(`zipfiles/${file.file}/${soldfile.id}`)
@@ -1252,23 +1363,40 @@ app.get('/earning/:time',  async (req, res) => {
    app.get('/download/zipfiles/:file/:id',  async (req, res) => {
     const {file} = req.params
     const {id} = req.params
-    const soldfile = await prisma.soldfile.findFirst({
-      where: {
-        id : Number(id),
-      },
-    })
-    if(!soldfile.download){
-      const update = await prisma.soldfile.update({
+    const cookies_download = req.cookies.download;
+    if(cookies_download == id){
+      const soldfile = await prisma.soldfile.findFirst({
         where: {
-          id : Number(id),
-        },
-        data: {
-          download: true,
+          id : id,
         },
       })
-      res.zip([
-        { path: `./public/files/${file}`, name: `ecu-file/${file}` }
-      ]);
+      if(!soldfile.download){
+        const update = await prisma.soldfile.update({
+          where: {
+            id : id,
+          },
+          data: {
+            download: true,
+          },
+        })
+        
+    }
+    
+    zip.addLocalFile(`./public/files/${file}`);
+ 
+    // Define zip file name
+    const downloadName = `${file}.zip`;
+ 
+    const data = zip.toBuffer();
+ 
+    // save file zip in root directory
+    // zip.writeZip(__dirname+"/"+downloadName);
+    
+    // code to download zip file
+    res.set('Content-Type','application/octet-stream');
+    res.set('Content-Disposition',`attachment; filename=${downloadName}`);
+    res.set('Content-Length',data.length);
+    res.send(data)
     }else{
       res.json('sorry yo already downloaded this file')
     }
@@ -1276,12 +1404,303 @@ app.get('/earning/:time',  async (req, res) => {
    })
 
 
-   app.get('/testzip/:name', (req, res) => {
+
+
+
+
+
+//upload_tuningfile
+app.post('/upload_tuningfile',function(req, res) {
+  // console.log(file)
+  var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+    cb(null, 'public/tuningfiles')
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname )
+  }
+})
+var upload = multer({ storage: storage }).single('file')
+  upload(req, res, function (err) {
+         if (err instanceof multer.MulterError) {
+             return res.status(500).json(err)
+         } else if (err) {
+             return res.status(500).json(err)
+         }
+    return res.status(200).send(req.file)
+
+  })
+
+});
+
+
+// add file api
+app.post('/sendOrder',  async (req, res) => {
+  console.log('runing  /tunungfile')
+  
+  //get req
+  const data = req.body.data
+  const name = data.name
+  const des = data.des
+  const email = data.email
+  const file = fulldate +"_"+ name+ data.fileName
+  const size = data.size
+  const price = data.price
+  const tuningfiles = data.tuningfiles
+  console.log(tuningfiles)
+  let tuningfilesId = [] //---------
+        for (let i = 0; i < tuningfiles.length; i++) {
+          tuningfilesId.push({ tuningfile_id: tuningfiles[i].id})
+        }
+  //createfile
+  const order = await prisma.orders.create({
+    data: {
+      name ,
+      des ,
+      email ,
+      file1 : file ,
+      file2 : size,
+      price ,
+      month ,
+      day ,
+      date ,
+      year ,
+      time ,
+      ordersID:{
+        create: tuningfilesId
+      }
+    },
+  })
+  if(!order){
+    const success = false
+    res.json(success)
+  }else{
+    const success = true
+    res.json({order: order})
+  }
+
+
+})
+//edit tuning file
+app.put('/UpdateOrder/:id',  async (req, res) => {
+  const {id} = req.params
+  //get req
+  
+  //createfile
+  const orders = await prisma.orders.update({
+    where:{
+      id: id
+    },
+    data: {
+      status : true,
+      
+    },
+  })
+  if(!orders){
+    const success = false
+    res.json(success)
+  }else{
+    const success = true
+    res.json(success)
+  }
+})
+  app.get('/downloadorder/:file/',  async (req, res) => {
+    const {file} = req.params
+   
+    const zip = new AdmZip();
+    
+    zip.addLocalFile(`./public/tuningfiles/${file}`);
+ 
+    // Define zip file name
+    const downloadName = `${file}.zip`;
+ 
+    const data = zip.toBuffer();
+ 
+    // save file zip in root directory
+    // zip.writeZip(__dirname+"/"+downloadName);
+    
+    // code to download zip file
+    res.set('Content-Type','application/octet-stream');
+    res.set('Content-Disposition',`attachment; filename=${downloadName}`);
+    res.set('Content-Length',data.length);
+    res.send(data)
+    
+   })
+
+// pay order
+app.get('/pay/:id', async (req, res) => {
+  const {id} = req.params
+  const order = await prisma.orders.update({
+        where: {
+          id: id
+        },
+        data:{
+        paid: true
+        }
+  })
+  if(!order){
+    const success = false
+    res.json({success: success})
+  }else{
+    var mailOptions = {
+      from: 'abrarmuhammad100@gmail.com',
+      to: order.email,
+      subject: 'Tuning File',
+      text: 'Your order has been submited. you will get your file as soon as possible. Thank you your order Id' + order.id + 'if you never get your order then send your Id on this email or contact us direct from website. Thank You'
+    };
+
+    transporter.sendMail(mailOptions, function(error, info){
+      if (error) {
+        console.log(error);
+      } else {
+        console.log('Email sent: ' + info.response);
+      }
+    });
+    const success = true
+    res.json({success: success})
+  }
+})
+
+app.delete('/deleteorder/:id', auth, async (req, res) => {
+  const { id } = req.params
+  const ordersid = await prisma.ordersID.delete({
+    where: {
+      order_id: id
+    },
+  })
+  const order = await prisma.orders.delete({
+    where: {
+      id: id
+    },
+  })
+  const pathToFile = "public/tuningfiles/"+order.file1
+  fs.unlink(pathToFile, function(err) {
+    if (err) {
+      throw err
+    } else {
+      console.log("Successfully deleted the file.")
+    }
+  })
+  res.json(orders)
+})
+
+
+//user update
+app.get('/sendtoken/:id',  async (req, res) => {
+  const {id} = req.params
+  //get req
+  const otp = Math.floor(Math.random() * 10000) + 1;
+  //createfile
+  const user = await prisma.user.update({
+    where:{
+      id: id
+    },
+    data:{
+      token : String(otp),
+      status: false
+    }
+  })
+
+  if(!user){
+    const success = false
+    res.json({success: success})
+  }else{
+    var mailOptions = {
+      from: 'abrarmuhammad100@gmail.com',
+      to: user.email,
+      subject: 'Account verification',
+      text: 'Your OTP is ' + otp
+    };
+
+    transporter.sendMail(mailOptions, function(error, info){
+      if (error) {
+        console.log(error);
+      } else {
+        console.log('Email sent: ' + info.response);
+      }
+    });
+    res.json({success:true, user: user})
+  }
+})
+
+app.put('/tokenverification/:id',  async (req, res) => {
+  const {id} = req.params
+  //get req
+  const data = req.body.data
+  const token = data.token
+  //createfile
+  const user = await prisma.user.findFirst({
+    where:{
+      id: id
+    },
+  })
+
+  if (user.token == token){
+    const updateuser = await prisma.user.update({
+      where:{
+        id: id
+      },
+      data:{
+        status: true
+      }
+    })
+    res.json({success: true})
+  }else{
+    res.json({success: false})
+  }
+})
+//change pass
+app.put('/changepass/:id',  async (req, res) => {
+  const {id} = req.params
+  //get req
+  const data = req.body.data
+  const pass = data.pass
+  const passhash = await bcrypt.hash(pass, 10);
+  //createfile
+
+  const user = await prisma.user.update({
+    where:{
+      id: id,
+      status: true
+    },
+    data: {
+      pass: passhash
+    }
+  })
+
+  if (user){
+    
+    res.json({success: true})
+  }else{
+    res.json({success: false})
+  }
+})
+
+app.delete('/deleteUser/:id',  async (req, res) => {
+  const {id} = req.params
+  //get req
+
+  //createfile
+  const user = await prisma.user.delete({
+    where:{
+      id: id
+    },
+  })
+
+  if (user){
+    
+    res.json({success: true})
+  }else{
+    res.json({success: false})
+  }
+})
+
+app.get('/testzip/:name', (req, res) => {
     const {name} = req.params
  
     const zip = new AdmZip();
-    zip.addLocalFile(__dirname+"/public/files/SMS.pdf");
 
+    zip.addLocalFile(__dirname+"/public/files/SMS.pdf");
  
     // Define zip file name
     const downloadName = `${name}.zip`;
@@ -1289,14 +1708,14 @@ app.get('/earning/:time',  async (req, res) => {
     const data = zip.toBuffer();
  
     // save file zip in root directory
-    zip.writeZip(__dirname+"/"+downloadName);
+    // zip.writeZip(__dirname+"/"+downloadName);
     
     // code to download zip file
- console.log('runedee')
+    console.log('runedee')
     res.set('Content-Type','application/octet-stream');
     res.set('Content-Disposition',`attachment; filename=${downloadName}`);
     res.set('Content-Length',data.length);
-    res.send('dsadsad');
+    res.json({download: 'done'});
  
 })
 // set port, listen for requests

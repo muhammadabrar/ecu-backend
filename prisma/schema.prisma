@@ -4,12 +4,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgres"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 model Post {
-  id        Int        @id @default(autoincrement())
+  id        String    @id @default(uuid())
   make      String     @db.VarChar(50)
   model     String?    @db.VarChar(50)
   engine    String?    @db.VarChar(50)
@@ -25,22 +25,22 @@ model Post {
 }
 
 model model {
-  id    Int    @id @default(autoincrement())
+  id    String    @id @default(uuid())
   model String @unique
 }
 
 model make {
-  id   Int    @id @default(autoincrement())
+  id   String    @id @default(uuid())
   make String @unique
 }
 
 model engine {
-  id     Int    @id @default(autoincrement())
+  id     String    @id @default(uuid())
   engine String @unique
 }
 
 model User {
-  id     Int     @id @default(autoincrement())
+  id     String    @id @default(uuid())
   email  String  @unique
   name   String? @db.VarChar(45)
   pass   String? @db.VarChar(200)
@@ -49,7 +49,7 @@ model User {
 }
 
 model msgs {
-  id      Int     @id @default(autoincrement())
+  id      String    @id @default(uuid())
   name    String? @db.VarChar(45)
   email   String? @db.VarChar(100)
   subject String? @db.VarChar(100)
@@ -63,7 +63,7 @@ model msgs {
 }
 
 model visiter {
-  id    Int    @id @default(autoincrement())
+  id    String    @id @default(uuid())
   ip    String @unique
   month Int?
   day   Int?
@@ -72,22 +72,22 @@ model visiter {
 }
 
 model tuningfiles {
-  id       Int        @id @default(autoincrement())
+  id       String    @id @default(uuid())
   cat      cat        @relation(fields: [cat_id], references: [id])
-  cat_id   Int
+  cat_id   String
   title    String?    @db.VarChar(100)
   price    Int?
   ordersID ordersID[]
 }
 
 model cat {
-  id          Int           @id @default(autoincrement())
+  id          String    @id @default(uuid())
   cat         String        @unique
   tuningfiles tuningfiles[]
 }
 
 model about {
-  id    Int     @id @default(autoincrement())
+  id    String    @id @default(uuid())
   title String? @db.VarChar(100)
   image String? @db.VarChar(500)
   p     String? @db.VarChar(500)
@@ -95,13 +95,13 @@ model about {
 }
 
 model faq {
-  id Int     @id @default(autoincrement())
+  id String    @id @default(uuid())
   Q  String? @db.VarChar(100)
   p  String? @db.VarChar(500)
 }
 
 model contact {
-  id       Int     @id @default(autoincrement())
+  id       String    @id @default(uuid())
   email    String? @db.VarChar(100)
   facebook String? @db.VarChar(500)
   insta    String? @db.VarChar(500)
@@ -110,7 +110,7 @@ model contact {
 }
 
 model feedback {
-  id       Int     @id @default(autoincrement())
+  id       String    @id @default(uuid())
   name     String? @db.VarChar(100)
   company  String? @db.VarChar(500)
   feedback String? @db.VarChar(500)
@@ -118,7 +118,7 @@ model feedback {
 }
 
 model earn {
-  id    Int     @id @default(autoincrement())
+  id    String    @id @default(uuid())
   earn  Int?
   title String? @db.VarChar(500)
   month Int?
@@ -128,9 +128,9 @@ model earn {
 }
 
 model soldfile {
-  id      Int     @id @default(autoincrement())
+  id      String    @id @default(uuid())
   file    Post    @relation(fields: [file_id], references: [id])
-  file_id Int
+  file_id String
   buyer   String? @db.VarChar(500)
   download Boolean @default(false)
 
@@ -142,7 +142,7 @@ model soldfile {
 }
 
 model orders {
-  id       Int        @id @default(autoincrement())
+  id       String    @id @default(uuid())
   name     String?    @db.VarChar(500)
   des      String?    @db.VarChar(500)
   email    String?    @db.VarChar(100)
@@ -150,6 +150,7 @@ model orders {
   file2    String?    @db.VarChar(100)
   price    Int?
   status   Boolean?   @default(false)
+  paid     Boolean?   @default(false)
   month    Int?
   day      Int?
   date     Int?
@@ -159,9 +160,9 @@ model orders {
 }
 
 model ordersID {
-  id            Int         @id @default(autoincrement())
+  id           String    @id @default(uuid())
   tuningfile    tuningfiles @relation(fields: [tuningfile_id], references: [id])
-  tuningfile_id Int
+  tuningfile_id String
   order         orders      @relation(fields: [order_id], references: [id])
-  order_id      Int
+  order_id      String
 }
